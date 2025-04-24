@@ -285,10 +285,6 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
             app.delegate = self
         }
         
-        AppDelegate.setLaunchAppFunc(handler: launchAppWithBundleId)
-        AppDelegate.setOpenUrlStrFunc(handler: openWebView)
-        AppDelegate.setInstallFromUrlStrFunc(handler: installFromUrl)
-        
         didAppear = true
     }
     
