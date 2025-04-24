@@ -3,91 +3,10 @@ import UIKit
 import SwiftUI
 
 @UIApplicationMain
-class AppDelegate: UIResponder, UIApplicationDelegate, CPApplicationDelegate {
+class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
     var carPlayInterfaceController: CPInterfaceController?
     var carWindow: CPWindow?
-
-    private static var urlStrToOpen: String? = nil
-    private static var openUrlStrFunc: ((String) async -> Void)?
-    private static var installUrl: String? = nil
-    private static var installFromUrlStrFunc: ((String) async -> Void)?
-    private static var bundleToLaunch: String? = nil
-    private static var containerToLaunch: String? = nil
-    private static var launchAppFunc: ((String, String?) async -> Void)?
-
-    private static var certData: Data? = nil
-    private static var certPassword: String? = nil
-    private static var importSideStoreCertFunc: ((Data, String) async -> Void)?
-
-    public static func setOpenUrlStrFunc(handler: @escaping ((String) async -> Void)){
-        self.openUrlStrFunc = handler
-        if let urlStrToOpen = self.urlStrToOpen {
-            Task { await handler(urlStrToOpen) }
-            self.urlStrToOpen = nil
-        } else if let urlStr = UserDefaults.standard.string(forKey: "webPageToOpen") {
-            UserDefaults.standard.removeObject(forKey: "webPageToOpen")
-            Task { await handler(urlStr) }
-        }
-    }
-
-    public static func setInstallFromUrlStrFunc(handler: @escaping ((String) async -> Void)){
-        self.installFromUrlStrFunc = handler
-        if let installUrl = self.installUrl {
-            Task { await handler(installUrl) }
-            self.urlStrToOpen = nil
-        }
-    }
-
-    public static func setLaunchAppFunc(handler: @escaping ((String, String?) async -> Void)){
-        self.launchAppFunc = handler
-        if let bundleToLaunch = self.bundleToLaunch {
-            Task { await handler(bundleToLaunch, containerToLaunch) }
-            self.bundleToLaunch = nil
-        }
-    }
-
-    public static func setImportSideStoreCertFunc(handler: @escaping ((Data, String) async -> Void)){
-        self.importSideStoreCertFunc = handler
-        if let certData, let certPassword {
-            Task { await handler(certData, certPassword) }
-            self.bundleToLaunch = nil
-        }
-    }
-
-    private static func openWebPage(urlStr: String) {
-        if openUrlStrFunc == nil {
-            urlStrToOpen = urlStr
-        } else {
-            Task { await openUrlStrFunc!(urlStr) }
-        }
-    }
-
-    private static func launchApp(bundleId: String, container: String?) {
-        if launchAppFunc == nil {
-            bundleToLaunch = bundleId
-            containerToLaunch = container
-        } else {
-            Task { await launchAppFunc!(bundleId, container) }
-        }
-    }
-
-    private static func installAppFromUrl(urlStr: String) {
-        if installFromUrlStrFunc == nil {
-            installUrl = urlStr
-        } else {
-            Task { await installFromUrlStrFunc!(urlStr) }
-        }
-    }
-
-    private static func importSideStoreCert(certData: Data, password: String) {
-        if importSideStoreCertFunc == nil {
-            self.certData = certData
-            self.certPassword = password
-        } else {
-            Task { await importSideStoreCertFunc!(certData, password) }
-        }
-    }
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         let window = UIWindow(frame: UIScreen.main.bounds)
@@ -107,26 +26,23 @@ class AppDelegate: UIResponder, UIApplicationDelegate, CPApplicationDelegate {
         return UISceneConfiguration(name: "Default Configuration", sessionRole: connectingSceneSession.role)
     }
 
-    // MARK: - CPApplicationDelegate
+    // MARK: - CarPlay Integration
+    func setupCarPlayInterface() {
+        guard let interfaceController = carPlayInterfaceController else { return }
+
+        let listItem1 = CPListItem(text: "App 1", detailText: "Details for App 1")
+        let listItem2 = CPListItem(text: "App 2", detailText: "Details for App 2")
+
+        let section = CPListSection(items: [listItem1, listItem2])
+        let listTemplate = CPListTemplate(title: "LiveContainer", sections: [section])
+
+        interfaceController.setRootTemplate(listTemplate, animated: true)
+    }
+
     func application(_ application: UIApplication, didConnectCarInterfaceController interfaceController: CPInterfaceController, to window: CPWindow) {
         self.carPlayInterfaceController = interfaceController
         self.carWindow = window
-
-        // Setup CarPlay interface
-        let template = CPListTemplate(title: "LiveContainer", sections: [
-            CPListSection(items: [
-                CPListItem(text: "App 1", detailText: "Details for App 1", handler: { _, completion in
-                    // Handle selection
-                    completion()
-                }),
-                CPListItem(text: "App 2", detailText: "Details for App 2", handler: { _, completion in
-                    // Handle selection
-                    completion()
-                })
-            ])
-        ])
-
-        interfaceController.setRootTemplate(template, animated: true)
+        setupCarPlayInterface()
     }
 
     func application(_ application: UIApplication, didDisconnectCarInterfaceController interfaceController: CPInterfaceController, from window: CPWindow) {
