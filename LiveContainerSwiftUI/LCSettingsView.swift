@@ -101,6 +101,16 @@ struct LCSettingsView: View {
                                 }
                             }
                         }
+                        Button {
+                            Task { await importCertificateFromFeather() }
+                        } label: {
+                            if certificateDataFound {
+                                Text("Refresh Certificate from Feather")
+                            } else {
+                                Text("Import Certificate from Feather")
+                            }
+                        }
+                        .disabled(!UIApplication.shared.canOpenURL(URL(string: "feather://")!))
                         
                         NavigationLink {
                             LCJITLessDiagnoseView()
@@ -558,6 +568,18 @@ struct LCSettingsView: View {
         }
         await UIApplication.shared.open(url)
     }
+    
+    func importCertificateFromFeather() async {
+        let callbackURL = "\(LCUtils.appUrlScheme())://receive-cert"
+        guard let encodedCallback = callbackURL.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let url = URL(string: "feather://export-certificate?callback=\(encodedCallback)") else {
+            errorInfo = "Failed to initialize Feather certificate import URL."
+            errorShow = true
+            return
+        }
+        await UIApplication.shared.open(url)
+    }
+    
     func onSideStoreCertificateCallback(certificateData: Data, password: String) {
         LCUtils.appGroupUserDefault.set(certificateData, forKey: "LCCertificateData")
         LCUtils.appGroupUserDefault.set(password, forKey: "LCCertificatePassword")
@@ -616,6 +638,24 @@ struct LCSettingsView: View {
                 
                 onSideStoreCertificateCallback(certificateData: certData, password: password)
                 
+            }
+        }
+        else if url.host == "receive-cert" {
+            if let components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+                func decodedData(for name: String) -> Data? {
+                    components.queryItems?
+                        .first(where: { $0.name == name })?
+                        .value?
+                        .replacingOccurrences(of: " ", with: "+")
+                        .removingPercentEncoding
+                        .flatMap { Data(base64Encoded: $0) }
+                }
+                guard let p12 = decodedData(for: "p12"),
+                      let passwordData = decodedData(for: "password") else {
+                    return
+                }
+                let password = String(data: passwordData, encoding: .utf8) ?? ""
+                onSideStoreCertificateCallback(certificateData: p12, password: password)
             }
         }
     }

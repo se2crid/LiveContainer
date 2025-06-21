@@ -948,6 +948,25 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
                     Task { await installFromUrl(urlStr: installUrl) }
                 }
             }
+        } else if url.host == "receive-cert" {
+            if let components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+                func decodedData(for name: String) -> Data? {
+                    components.queryItems?
+                        .first(where: { $0.name == name })?
+                        .value?
+                        .replacingOccurrences(of: " ", with: "+")
+                        .removingPercentEncoding
+                        .flatMap { Data(base64Encoded: $0) }
+                }
+                guard let p12 = decodedData(for: "p12"),
+                      let passwordData = decodedData(for: "password") else {
+                    return
+                }
+                let password = String(data: passwordData, encoding: .utf8) ?? ""
+                LCUtils.appGroupUserDefault.set(p12, forKey: "LCCertificateData")
+                LCUtils.appGroupUserDefault.set(password, forKey: "LCCertificatePassword")
+                LCUtils.appGroupUserDefault.set(NSDate.now, forKey: "LCCertificateUpdateDate")
+            }
         }
 //        else if url.host == "certificate" {
 //            if let components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
