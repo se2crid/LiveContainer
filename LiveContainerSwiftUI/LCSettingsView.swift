@@ -571,7 +571,9 @@ struct LCSettingsView: View {
     
     func importCertificateFromFeather() async {
         let callbackURL = "\(LCUtils.appUrlScheme())://receive-cert"
-        guard let encodedCallback = callbackURL.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: ":/?")
+        guard let encodedCallback = callbackURL.addingPercentEncoding(withAllowedCharacters: allowed),
               let url = URL(string: "feather://export-certificate?callback=\(encodedCallback)") else {
             errorInfo = "Failed to initialize Feather certificate import URL."
             errorShow = true
