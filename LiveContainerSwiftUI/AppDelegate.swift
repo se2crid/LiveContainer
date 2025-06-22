@@ -32,42 +32,6 @@ import SwiftUI
         configuration.delegateClass = SceneDelegate.self
         return configuration
     }
-
-    func application(_ app: UIApplication,
-                     open url: URL,
-                     options: [UIApplication.OpenURLOptionsKey : Any] = [:]) -> Bool {
-        // Handle certificate hand-off from Feather (feather://export-certificate)
-        guard url.scheme == LCUtils.appUrlScheme(),   // e.g. "livecontainer"
-              url.host == "receive-cert",
-              let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-        else {
-            return false
-        }
-
-        func decodedData(for name: String) -> Data? {
-            components.queryItems?
-                .first(where: { $0.name == name })?
-                .value?
-                .replacingOccurrences(of: " ", with: "+") // repair for plus sign ↔︎ space
-                .removingPercentEncoding
-                .flatMap { Data(base64Encoded: $0) }
-        }
-
-        guard let p12Data = decodedData(for: "p12"),
-              let passwordData = decodedData(for: "password")
-        else {
-            return false
-        }
-        let password = String(data: passwordData, encoding: .utf8) ?? ""
-
-        // Persist the certificate, password and mobile provision
-        LCUtils.appGroupUserDefault.set(p12Data, forKey: "LCCertificateData")
-        LCUtils.appGroupUserDefault.set(password, forKey: "LCCertificatePassword")
-        LCUtils.appGroupUserDefault.set(NSDate(), forKey: "LCCertificateUpdateDate")
-        // mobileprovision is ignored; not needed for JIT-less operation
-
-        return true
-    }
 }
 
 class SceneDelegate: NSObject, UIWindowSceneDelegate, ObservableObject { // Make SceneDelegate conform ObservableObject
