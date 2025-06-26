@@ -122,6 +122,9 @@
 - (audit_token_t)auditToken;
 @end
 
+@interface RBSTarget : NSObject
+@end
+
 @interface UIApplicationSceneSpecification : FBSSceneSpecification
 @end
 
@@ -201,6 +204,9 @@
 @interface UIWindow (Private)
 - (instancetype)_initWithFrame:(CGRect)frame attached:(BOOL)attached;
 - (void)orderFront:(id)arg1;
+@end
+
+@interface _UIRootWindow : UIWindow
 @end
 
 @interface UIScreen (Private)
