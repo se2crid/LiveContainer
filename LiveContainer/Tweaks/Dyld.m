@@ -189,7 +189,7 @@ bool performHookDyldApi(const char* functionName, uint32_t adrpOffset, void** or
     uint32_t* baseAddr = dlsym(RTLD_DEFAULT, functionName);
     assert(baseAddr != 0);
     /*
-     arm64e 26.4b1+ has extra 20 instructions between adrpOffset and adrp
+     arm64e 26.4b1+ calls checkTPROState() before loading gAPIs
      arm64e
      1ad450b90  e10300aa   mov     x1, x0
      1ad450b94  487b2090   adrp    x8, dyld4::gAPIs
@@ -214,12 +214,20 @@ bool performHookDyldApi(const char* functionName, uint32_t adrpOffset, void** or
      00000001ac934c90         ldr        x2, [x8, #0x258]
      00000001ac934c94         br         x2
      */
-    uint32_t* adrpInstPtr = baseAddr + adrpOffset;
-    if ((*adrpInstPtr & 0x9f000000) != 0x90000000) {
-        adrpOffset += 20;
-        adrpInstPtr = baseAddr + adrpOffset;
+    uint32_t* adrpInstPtr = 0;
+    for(uint32_t offset = adrpOffset; offset < adrpOffset + 64; ++offset) {
+        uint32_t* candidate = baseAddr + offset;
+        uint32_t apiPtrReg = candidate[1] & 0x1F;
+        // gAPIs is loaded by adrp/ldr, then its vtable is loaded immediately after.
+        if(aarch64_emulate_adrp_ldr(candidate[0], candidate[1], (uint64_t)candidate) != 0 &&
+           (candidate[2] & 0xFFFFFC00) == 0xF9400000 &&
+           ((candidate[2] >> 5) & 0x1F) == apiPtrReg) {
+            adrpOffset = offset;
+            adrpInstPtr = candidate;
+            break;
+        }
     }
-    assert ((*adrpInstPtr & 0x9f000000) == 0x90000000);
+    assert(adrpInstPtr != 0);
     void* gdyldPtr = (void*)aarch64_emulate_adrp_ldr(*adrpInstPtr, *(baseAddr + adrpOffset + 1), (uint64_t)(baseAddr + adrpOffset));
     
     assert(gdyldPtr != 0);
@@ -262,28 +270,51 @@ bool performHookDyldApi(const char* functionName, uint32_t adrpOffset, void** or
     return true;
 }
 
+static bool isVersionMapValid(uint32_t* versionMapPtr, void* dyldBase) {
+    if(!versionMapPtr) {
+        return false;
+    }
+    uintptr_t offset = (uintptr_t)versionMapPtr - (uintptr_t)dyldBase;
+    return offset < 0x1000000 && versionMapPtr[0] == 0x07db0901 && versionMapPtr[2] == 0x00050000;
+}
+
+static uint32_t* findVersionMap(void* dyldBase) {
+    const char* versionMapSymbols[] = {
+        "__ZN5dyld311sVersionMapE",  // iOS 27+
+        "__ZN5dyld3L11sVersionMapE", // iOS 15-26
+    };
+    for(size_t i = 0; i < sizeof(versionMapSymbols) / sizeof(versionMapSymbols[0]); ++i) {
+        NSString* symbolName = [NSString stringWithUTF8String:versionMapSymbols[i]];
+        uint32_t* versionMapPtr = getCachedSymbol(symbolName, dyldBase);
+        if(isVersionMapValid(versionMapPtr, dyldBase)) {
+            return versionMapPtr;
+        }
+
+#if !TARGET_OS_SIMULATOR
+        uint64_t offset = LCFindSymbolOffset("/usr/lib/dyld", versionMapSymbols[i]);
+        versionMapPtr = offset ? (uint32_t*)((uint8_t*)dyldBase + offset) : 0;
+#else
+        versionMapPtr = litehook_find_symbol(dyldBase, versionMapSymbols[i]);
+#endif
+        if(isVersionMapValid(versionMapPtr, dyldBase)) {
+            saveCachedSymbol(symbolName, dyldBase, (uintptr_t)versionMapPtr - (uintptr_t)dyldBase);
+            return versionMapPtr;
+        }
+    }
+    return 0;
+}
+
 bool initGuestSDKVersionInfo(void) {
     void* dyldBase = getDyldBase();
     // it seems Apple is constantly changing findVersionSetEquivalent's signature so we directly search sVersionMap instead
-    uint32_t* versionMapPtr = getCachedSymbol(@"__ZN5dyld3L11sVersionMapE", dyldBase);
+    uint32_t* versionMapPtr = findVersionMap(dyldBase);
     if(!versionMapPtr) {
-#if !TARGET_OS_SIMULATOR
-        const char* dyldPath = "/usr/lib/dyld";
-        uint64_t offset = LCFindSymbolOffset(dyldPath, "__ZN5dyld3L11sVersionMapE");
-#else
-        void *result = litehook_find_symbol(dyldBase, "__ZN5dyld3L11sVersionMapE");
-        uint64_t offset = (uint64_t)result - (uint64_t)dyldBase;
-#endif
-        versionMapPtr = dyldBase + offset;
-        saveCachedSymbol(@"__ZN5dyld3L11sVersionMapE", dyldBase, offset);
+        return false;
     }
-    
-    assert(versionMapPtr);
+
     // however sVersionMap's struct size is also unknown, but we can figure it out
     // we assume the size is 10K so we won't need to change this line until maybe iOS 40
     uint32_t* versionMapEnd = versionMapPtr + 2560;
-    // ensure the first is versionSet and the third is iOS version (5.0.0)
-    assert(versionMapPtr[0] == 0x07db0901 && versionMapPtr[2] == 0x00050000);
     // get struct size. we assume size is smaller then 128. appearently Apple won't have so many platforms
     uint32_t size = 0;
     for(int i = 1; i < 128; ++i) {
@@ -293,7 +324,9 @@ bool initGuestSDKVersionInfo(void) {
             break;
         }
     }
-    assert(size);
+    if(!size) {
+        return false;
+    }
     
     NSOperatingSystemVersion currentVersion = [[NSProcessInfo processInfo] operatingSystemVersion];
     uint32_t maxVersion = ((uint32_t)currentVersion.majorVersion << 16) | ((uint32_t)currentVersion.minorVersion << 8);

@@ -110,10 +110,20 @@ static uint64_t rnd64(uint64_t v, uint64_t r) {
 }
 
 void overwriteMainCFBundle(void) {
+    // iOS 27's CFBundleGetMainBundle is backed by Swift Foundation's mainBundle.
+    if (objc_getClass("_NSSwiftBundle") != Nil) {
+        return;
+    }
+
+    void *newMainBundle = (__bridge void *)NSBundle.mainBundle._cfBundle;
+    if ((void *)CFBundleGetMainBundle() == newMainBundle) {
+        return;
+    }
+
     // Overwrite CFBundleGetMainBundle
     uint32_t *pc = (uint32_t *)CFBundleGetMainBundle;
     void **mainBundleAddr = 0;
-    while (true) {
+    for (int i = 0; i < 128; ++i, ++pc) {
         uint64_t addr = aarch64_get_tbnz_jump_address(*pc, (uint64_t)pc);
         if (addr) {
             // adrp <- pc-1
@@ -121,12 +131,13 @@ void overwriteMainCFBundle(void) {
             // ...
             // ldr  <- addr
             mainBundleAddr = (void **)aarch64_emulate_adrp_ldr(*(pc-1), *(uint32_t *)addr, (uint64_t)(pc-1));
-            break;
+            if (mainBundleAddr) {
+                break;
+            }
         }
-        ++pc;
     }
     assert(mainBundleAddr != NULL);
-    *mainBundleAddr = (__bridge void *)NSBundle.mainBundle._cfBundle;
+    *mainBundleAddr = newMainBundle;
 }
 
 void overwriteMainNSBundle(NSBundle *newBundle) {
